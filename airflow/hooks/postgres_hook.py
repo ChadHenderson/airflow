@@ -180,7 +180,8 @@ class PostgresHook(DbApiHook):
         return login, token, port
 
     def insert_rows(self, table, rows, target_fields=None, commit_every=1000,
-            replace=False, replace_pk=None, remove_columns_on_replace=None):
+                    update_on_conflict=False, conflict_target=None,
+                    exclude_fields_on_conflict=None):
         """
         A generic way to insert a set of tuples into a table,
         a new transaction is created every commit_every rows
@@ -197,11 +198,39 @@ class PostgresHook(DbApiHook):
         :param replace: Whether to replace instead of insert
         :type replace: bool
         """
+
+        target_fields = ['"{}"'.format(x) for x in target_fields]
+        exclude_fields_on_conflict = ['"{x}"'.format(x) for x in exclude_fields_on_conflict]
+        conflict_target = '"{conflict_target}"'
         if target_fields:
-            target_fields = ", ".join(target_fields)
-            target_fields = "({})".format(target_fields)
+            target_fields_str = ", ".join(target_fields)
+            target_fields_str = "({})".format(target_fields_str)
         else:
-            target_fields = ''
+            target_fields_str = ''
+
+        on_conflict_sql = ""
+        if update_on_conflict:
+            indexes_to_remove = []
+            update_assignments = []
+
+            if exclude_fields_on_conflict:
+                exclude_fields_on_conflict.append(conflict_target)
+            else:
+                exclude_fields_on_conflict = [conflict_target]
+
+            for field in exclude_fields_on_conflict:
+                indexes_to_remove.append(target_fields.index(field))
+            for idx in indexes_to_remove:
+                target_fields.pop(idx)
+            for field in target_fields:
+                assignment = "{field}=EXCLUDED.{field}".format(field)
+                update_assignments.append(assignment)
+
+            update_assignments = " ,".join(update_assignments)
+
+            on_conflict_sql = " ON CONFLICT ({conflict_target}) ".format(conflict_target)
+            on_conflict_sql += "DO UPDATE SET {update_assignments}".format(update_assignments)
+
         i = 0
         with closing(self.get_conn()) as conn:
             if self.supports_autocommit:
@@ -215,26 +244,16 @@ class PostgresHook(DbApiHook):
                     for cell in row:
                         lst.append(self._serialize_cell(cell, conn))
                     values = tuple(lst)
+                    placeholders = ["%s", ] * len(values)
 
                     sql = "INSERT INTO "
                     sql += "{0} {1} VALUES ({2}) ".format(
                         table,
-                        target_fields,
-                        ",".join(values))
+                        target_fields_str,
+                        ",".join(placeholders))
 
-                    if replace:
-                        remove_indexes = [target_fields.index(x) for x in remove_fields_on_replace + [replace_pk]]
-                        update_fields = [target_fields.copy().pop(x) for x in remove_indexes]
-                        update_values = [values.copy().pop(x) for x in remove_indexes]
-                        update_assignments = " ".join(["=EXCLUDED.".join(x) for x in zip(update_fields, update_values)])
-
-                        sql += "ON CONFLICT ({0} ")
-                        sql += "DO UPDATE SET {1}".format(
-                            replace_pk,
-                            update_assignments)
-
-                        
-                    cur.execute(sql)
+                    sql += on_conflict_sql
+                    cur.execute(sql, values)
                     if commit_every and i % commit_every == 0:
                         conn.commit()
                         self.log.info(
@@ -243,4 +262,3 @@ class PostgresHook(DbApiHook):
 
             conn.commit()
         self.log.info("Done loading. Loaded a total of %s rows", i)
-

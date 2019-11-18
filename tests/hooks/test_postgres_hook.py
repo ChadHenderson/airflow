@@ -178,3 +178,21 @@ class TestPostgresHook(unittest.TestCase):
                     results = [line.rstrip().decode("utf-8") for line in f.readlines()]
 
         self.assertEqual(sorted(input_data), sorted(results))
+
+    def test_insert_rows(self):
+        hook = PostgresHook()
+        conflict_input = (1, 1, 2, 3, 4)
+
+        with hook.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("CREATE TABLE {} (c integer UNIQUE NOT NULL)".format(self.table))
+
+        hook.insert_rows(self, table=self.table, rows=conflict_input, target_fields="c")
+
+        with hook.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(c) FROM {}".format(self.table))
+                row_count = cur.rowcount()
+
+        conflict_input.pop()
+        self.assertEqual(len(conflict_input), row_count)
