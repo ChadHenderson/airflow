@@ -199,10 +199,10 @@ class PostgresHook(DbApiHook):
         :type replace: bool
         """
 
-        target_fields = ['"{}"'.format(x) for x in target_fields]
         exclude_fields_on_conflict = ['"{x}"'.format(x) for x in exclude_fields_on_conflict]
         conflict_target = '"{conflict_target}"'
         if target_fields:
+            target_fields = ['"{}"'.format(x) for x in target_fields]
             target_fields_str = ", ".join(target_fields)
             target_fields_str = "({})".format(target_fields_str)
         else:
