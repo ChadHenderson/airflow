@@ -187,7 +187,7 @@ class TestPostgresHook(unittest.TestCase):
             with conn.cursor() as cur:
                 cur.execute("CREATE TABLE {} (c integer UNIQUE NOT NULL)".format(self.table))
 
-        hook.insert_rows(self, table=self.table, rows=conflict_input, target_fields=["c"])
+        hook.insert_rows(table=self.table, rows=conflict_input, target_fields=["c"])
 
         with hook.get_conn() as conn:
             with conn.cursor() as cur:
