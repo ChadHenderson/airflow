@@ -178,3 +178,69 @@ class PostgresHook(DbApiHook):
             client = aws_hook.get_client_type('rds')
             token = client.generate_db_auth_token(conn.host, port, conn.login)
         return login, token, port
+
+    def insert_rows(self, table, rows, target_fields=None, commit_every=1000,
+            replace=False, replace_pk=None, remove_columns_on_replace=None):
+        """
+        A generic way to insert a set of tuples into a table,
+        a new transaction is created every commit_every rows
+
+        :param table: Name of the target table
+        :type table: str
+        :param rows: The rows to insert into the table
+        :type rows: iterable of tuples
+        :param target_fields: The names of the columns to fill in the table
+        :type target_fields: iterable of strings
+        :param commit_every: The maximum number of rows to insert in one
+            transaction. Set to 0 to insert all rows in one transaction.
+        :type commit_every: int
+        :param replace: Whether to replace instead of insert
+        :type replace: bool
+        """
+        if target_fields:
+            target_fields = ", ".join(target_fields)
+            target_fields = "({})".format(target_fields)
+        else:
+            target_fields = ''
+        i = 0
+        with closing(self.get_conn()) as conn:
+            if self.supports_autocommit:
+                self.set_autocommit(conn, False)
+
+            conn.commit()
+
+            with closing(conn.cursor()) as cur:
+                for i, row in enumerate(rows, 1):
+                    lst = []
+                    for cell in row:
+                        lst.append(self._serialize_cell(cell, conn))
+                    values = tuple(lst)
+
+                    sql = "INSERT INTO "
+                    sql += "{0} {1} VALUES ({2}) ".format(
+                        table,
+                        target_fields,
+                        ",".join(values))
+
+                    if replace:
+                        remove_indexes = [target_fields.index(x) for x in remove_fields_on_replace + [replace_pk]]
+                        update_fields = [target_fields.copy().pop(x) for x in remove_indexes]
+                        update_values = [values.copy().pop(x) for x in remove_indexes]
+                        update_assignments = " ".join(["=EXCLUDED.".join(x) for x in zip(update_fields, update_values)])
+
+                        sql += "ON CONFLICT ({0} ")
+                        sql += "DO UPDATE SET {1}".format(
+                            replace_pk,
+                            update_assignments)
+
+                        
+                    cur.execute(sql)
+                    if commit_every and i % commit_every == 0:
+                        conn.commit()
+                        self.log.info(
+                            "Loaded %s into %s rows so far", i, table
+                        )
+
+            conn.commit()
+        self.log.info("Done loading. Loaded a total of %s rows", i)
+
