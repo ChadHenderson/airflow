@@ -195,4 +195,4 @@ class TestPostgresHook(unittest.TestCase):
                 row_count = cur.rowcount()
 
         conflict_input.pop()
-        self.assertEqual(len(conflict_input), row_count)
+        self.assertEqual(len(conflict_input), row_count)  # for travis
