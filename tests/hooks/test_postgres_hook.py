@@ -181,7 +181,7 @@ class TestPostgresHook(unittest.TestCase):
 
     def test_insert_rows(self):
         hook = PostgresHook()
-        conflict_input = (1, 1, 2, 3, 4)
+        conflict_input = [(1), (1), (2), (3), (4)]
 
         with hook.get_conn() as conn:
             with conn.cursor() as cur:
